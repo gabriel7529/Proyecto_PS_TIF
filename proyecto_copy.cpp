@@ -6,12 +6,17 @@
 #include <limits>
 #include <cmath>
 #include <chrono>
+#include <unistd.h>
+#include <fstream>
+#include <sstream>
+#include <thread>
+#include <sys/sysinfo.h>
+
 
 class Statistics {
 private:
     int totalPedidos;
     std::chrono::high_resolution_clock::time_point startTime;
-    // Otras estadísticas que quieras registrar
 
 public:
     Statistics() : totalPedidos(0) {
@@ -211,17 +216,98 @@ void presentarMenu(const vector<Plato>& carta) {
     }
     cout << "+------------------------------------------+" << endl;
 }
-
-void generarArchivoCSV(const Statistics& stats) {
-    ofstream archivo("estadisticas.csv");
+void generarArchivoCSV(const Statistics& stats, double cpuUsage, double memoryUsage, int totalPedidos, double tiempoTranscurrido) {
+    ofstream archivo("estadisticas.csv", ios::app);
     if (archivo.is_open()) {
-        archivo << "Metrica,Valor" << endl;
-        archivo << "TotalPedidos," << stats.getTotalPedidos() << endl;
-        archivo << "TiempoEjecucion," << 
-            stats.getElapsedTime() << endl;
-        // Agregar otras métricas
+        archivo << tiempoTranscurrido << "," << totalPedidos << "," << cpuUsage << "," << memoryUsage << endl;
         archivo.close();
+
+        cout << "Estadisticas registradas en 'estadisticas.csv'." << endl;
+    } else {
+        cout << "No se pudo abrir el archivo para guardar las estadisticas." << endl;
     }
+}
+
+void generarGrafica() {
+    ofstream script("grafica_script.gp");
+    if (script.is_open()) {
+        script << "set datafile separator ','\n";
+        script << "set terminal png\n";
+        script << "set output 'grafica.png'\n";
+        script << "plot 'estadisticas.csv' using 1:2 title 'Uso de CPU' with lines, '' using 1:3 title 'Uso de Memoria' with lines\n";
+        script.close();
+    } else {
+        cout << "No se pudo abrir el archivo de script de Gnuplot." << endl;
+    }
+};
+
+double obtenerUsoCPU() {
+    std::ifstream statFile("/proc/stat");
+    std::string line;
+    
+    if (!statFile) {
+        return 0.0; // Error al leer el archivo
+    }
+
+    std::getline(statFile, line);
+    statFile.close();
+
+    long user, nice, sys, idle, iowait, irq, softirq, steal, guest, guest_nice;
+    sscanf(line.c_str(), "cpu %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld", &user, &nice, &sys, &idle, &iowait, &irq, &softirq, &steal, &guest, &guest_nice);
+
+    long totalIdle = idle + iowait;
+    long totalNonIdle = user + nice + sys + irq + softirq + steal + guest + guest_nice;
+    long total = totalIdle + totalNonIdle;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Esperar un momento para calcular la diferencia
+    std::ifstream statFile2("/proc/stat");
+    std::string line2;
+    std::getline(statFile2, line2);
+    statFile2.close();
+
+    long user2, nice2, sys2, idle2, iowait2, irq2, softirq2, steal2, guest2, guest_nice2;
+    sscanf(line2.c_str(), "cpu %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld", &user2, &nice2, &sys2, &idle2, &iowait2, &irq2, &softirq2, &steal2, &guest2, &guest_nice2);
+
+    long totalIdle2 = idle2 + iowait2;
+    long totalNonIdle2 = user2 + nice2 + sys2 + irq2 + softirq2 + steal2 + guest2 + guest_nice2;
+    long total2 = totalIdle2 + totalNonIdle2;
+
+    double cpuPercentage = (1.0 - (static_cast<double>(totalIdle2 - totalIdle) / (total2 - total))) * 100.0;
+    return cpuPercentage;
+};
+
+double obtenerUsoMemoria() {
+    std::ifstream meminfo("/proc/meminfo");
+    std::string line;
+    long long totalMem = 0, freeMem = 0, buffers = 0, cached = 0;
+
+    if (!meminfo) {
+        return 0.0; // Error al leer el archivo
+    }
+
+    while (std::getline(meminfo, line)) {
+        if (line.find("MemTotal:") == 0) {
+            std::istringstream iss(line);
+            iss >> line >> totalMem;
+        } else if (line.find("MemFree:") == 0) {
+            std::istringstream iss(line);
+            iss >> line >> freeMem;
+        } else if (line.find("Buffers:") == 0) {
+            std::istringstream iss(line);
+            iss >> line >> buffers;
+        } else if (line.find("Cached:") == 0) {
+            std::istringstream iss(line);
+            iss >> line >> cached;
+            break; // Detener el ciclo después de leer la memoria caché
+        }
+    }
+
+    meminfo.close();
+
+    long long usedMem = totalMem - (freeMem + buffers + cached);
+
+    double memoryPercentage = (static_cast<double>(usedMem) / totalMem) * 100.0;
+    return memoryPercentage;
 }
 
 int main() {
@@ -272,6 +358,9 @@ int main() {
 
     int opcion1, opcion2 = 0;
     string boleta;
+    double cpuUsageBoleta, memoryUsageBoleta, tiempoTranscurridoBoleta;
+    int totalPedidosBoleta = stats.getTotalPedidos(); // Obtener el total de pedidos para esta boleta
+
     do {
         try{
             cout << "+-----------------------------------------+" << endl;
@@ -349,12 +438,19 @@ int main() {
                 case 3:
                     boleta =  ordenes.generarBoleta();
                     cout << boleta <<endl;
+                    cpuUsageBoleta = obtenerUsoCPU(); // Debes implementar esta función para medir el uso de CPU
+                    memoryUsageBoleta = obtenerUsoMemoria(); // Debes implementar esta función para medir el uso de memoria
+                    totalPedidosBoleta = stats.getTotalPedidos(); // Obtener el total de pedidos para esta boleta
+                    tiempoTranscurridoBoleta = stats.getElapsedTime(); // Obtener el tiempo transcurrido para esta boleta
+                    generarArchivoCSV(stats, cpuUsageBoleta, memoryUsageBoleta, totalPedidosBoleta, tiempoTranscurridoBoleta); 
                     opcion2 = 0;
                     ordenes.guardarBoletaEnArchivo(boleta);
                     ordenes.crearNuevaPila();
                     boleta = "";
-
-                    
+                    cpuUsageBoleta = 0;
+                    memoryUsageBoleta = 0;
+                    totalPedidosBoleta = 0;
+                    tiempoTranscurridoBoleta = 0;
                     break;
                 case 4:
                     cout <<"Lista de la boletas de ventas realizadas\n"<<endl;
@@ -382,7 +478,8 @@ int main() {
         }
     } while (opcion1 != 5);
 
-    generarArchivoCSV(stats);
+    generarGrafica();
+    system("gnuplot grafica_script.gp");
     return 0;
 }
 

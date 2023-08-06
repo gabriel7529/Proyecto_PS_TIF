@@ -1,0 +1,10 @@
+1|Arroz chaufa|10.00
+2|Lomo saltado|12.00
+3|Caldo Blanco|8.00
+4|Pastel de papa|20.00
+5|Estofado de Pollo|11.00
+6|Rocoto Relleno|25.00
+7|Chicharon de Chancho|30.00
+8|Filete de Res|19.00
+9|Curry verde|16.00
+10| Arroz Amarrillo|10.00
